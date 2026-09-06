@@ -83,17 +83,6 @@ This prototype demonstrates how an integrated chatbot and dashboard can:
 | Hosting                 | Netlify                        |
 | Version control         | GitHub                         |
 
-## System Architecture
-
-```mermaid
-flowchart TD
-    A[Staff user] --> B[Support chatbot]
-    B --> C[Supabase Edge Functions]
-    C --> D[Claude API]
-    C --> E[(Supabase database)]
-    F[IT dashboard] <--> E
-```
-
 ## Database Design
 
 The Supabase PostgreSQL database contains the following tables:
