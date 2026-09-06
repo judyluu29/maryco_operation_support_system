@@ -1,10 +1,10 @@
 import { createClient } from "npm:@supabase/supabase-js@2";
 
-const ALLOWED_ORIGINS = new Set([
+const allowedOrigins = [
   "http://localhost:8000",
   "http://127.0.0.1:8000",
-  "https://cheerful-biscotti-c38912.netlify.app",
-]);
+  "https://maryco-it-support.netlify.app",
+];
 
 function response(
   body: unknown,
@@ -19,6 +19,7 @@ function response(
       "access-control-allow-headers":
         "authorization, apikey, content-type, x-client-info",
       "access-control-allow-methods": "POST, OPTIONS",
+      "vary": "Origin",
     },
   });
 }
@@ -27,7 +28,13 @@ function text(value: unknown, maximum = 2000) {
   return String(value ?? "").trim().slice(0, maximum);
 }
 
-const priorities = ["low", "medium", "high", "critical"];
+const priorities = [
+  "low",
+  "medium",
+  "high",
+  "critical",
+];
+
 const categories = [
   "password",
   "hardware",
@@ -40,174 +47,275 @@ const categories = [
 Deno.serve(async (req) => {
   const origin = req.headers.get("origin") ?? "";
 
+  // Browser CORS preflight
   if (req.method === "OPTIONS") {
-    if (origin && !ALLOWED_ORIGINS.has(origin)) {
-      return response({ error: "Origin not allowed" }, 403, origin);
+    if (origin && !allowedOrigins.includes(origin)) {
+      return response(
+        { error: "Origin not allowed" },
+        403,
+        origin,
+      );
     }
 
     return response({ ok: true }, 200, origin);
   }
 
+  // Only allow POST requests
   if (req.method !== "POST") {
-    return response({ error: "Method not allowed" }, 405, origin);
+    return response(
+      { error: "Method not allowed" },
+      405,
+      origin,
+    );
   }
 
-  if (origin && !ALLOWED_ORIGINS.has(origin)) {
-    return response({ error: "Origin not allowed" }, 403, origin);
+  // Only allow requests from the chatbot website or localhost
+  if (origin && !allowedOrigins.includes(origin)) {
+    return response(
+      { error: "Origin not allowed" },
+      403,
+      origin,
+    );
   }
 
   try {
-    /*
-     * If you previously created SUPABASE_PUBLISHABLE_KEY,
-     * this keeps checking it.
-     */
-    const expectedPublicKey = Deno.env.get("SUPABASE_PUBLISHABLE_KEY");
+    // Check the browser's Supabase publishable key
+    const expectedPublicKey = Deno.env.get(
+      "SUPABASE_PUBLISHABLE_KEY",
+    );
+
+    const suppliedPublicKey =
+      req.headers.get("apikey") ?? "";
 
     if (
       expectedPublicKey &&
-      req.headers.get("apikey") !== expectedPublicKey
+      suppliedPublicKey !== expectedPublicKey
     ) {
-      return response({ error: "Invalid API key" }, 401, origin);
+      return response(
+        { error: "Invalid API key" },
+        401,
+        origin,
+      );
     }
 
-    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+    // Load server-side Supabase credentials
+    const supabaseUrl =
+      Deno.env.get("SUPABASE_URL") ?? "";
 
-    const secretKeysJson = Deno.env.get("SUPABASE_SECRET_KEYS");
+    const secretKeysJson =
+      Deno.env.get("SUPABASE_SECRET_KEYS");
 
-const secretKeys = secretKeysJson
-  ? JSON.parse(secretKeysJson)
-  : {};
+    const secretKeys = secretKeysJson
+      ? JSON.parse(secretKeysJson)
+      : {};
 
-const databaseKey =
-  secretKeys["default"] ??
-  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ??
-  "";
+    const databaseKey =
+      secretKeys["default"] ??
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ??
+      "";
 
     if (!supabaseUrl || !databaseKey) {
-      throw new Error("Supabase database secrets are missing");
+      throw new Error(
+        "Supabase database secrets are missing",
+      );
     }
 
-    const supabase = createClient(supabaseUrl, databaseKey, {
-      auth: {
-        persistSession: false,
-        autoRefreshToken: false,
+    // Server-side Supabase client
+    const supabase = createClient(
+      supabaseUrl,
+      databaseKey,
+      {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false,
+        },
       },
-    });
+    );
 
+    // Read the incoming request
     const requestBody = await req.json();
     const action = requestBody?.action;
     const payload = requestBody?.payload ?? {};
 
-    // ─────────────────────────────────────────────
-    // Create support ticket
-    // ─────────────────────────────────────────────
+    // ========================================================
+    // CREATE SUPPORT TICKET
+    // ========================================================
+
     if (action === "create_case") {
-      const priority = priorities.includes(payload.priority)
+      const priority = priorities.includes(
+        payload.priority,
+      )
         ? payload.priority
         : "low";
 
-      const category = categories.includes(payload.category)
+      const category = categories.includes(
+        payload.category,
+      )
         ? payload.category
         : "software";
 
       const summary = text(payload.summary, 300);
 
       if (!summary) {
-        return response({ error: "Ticket summary is required" }, 400, origin);
+        return response(
+          { error: "Ticket summary is required" },
+          400,
+          origin,
+        );
       }
 
-      const { data: ticket, error: ticketError } = await supabase
-        .from("cases")
-        .insert({
-          summary,
-          detail: text(payload.detail),
-          tried: text(payload.tried),
-          required: text(payload.required),
-          priority,
-          category,
-          site: text(payload.site, 200),
-        })
-        .select(
-          "id, ref, summary, detail, tried, required, priority, category, site",
-        )
-        .single();
+      const { data: ticket, error: ticketError } =
+        await supabase
+          .from("cases")
+          .insert({
+            summary,
+            detail: text(payload.detail),
+            tried: text(payload.tried),
+            required: text(payload.required),
+            priority,
+            category,
+            site: text(payload.site, 200),
+          })
+          .select(
+            `
+              id,
+              ref,
+              summary,
+              detail,
+              tried,
+              required,
+              priority,
+              category,
+              site
+            `,
+          )
+          .single();
 
-      if (ticketError) throw ticketError;
+      if (ticketError) {
+        throw ticketError;
+      }
 
-      let emailStatus: "sent" | "failed" | null = null;
+      // ======================================================
+      // EMAIL NOTIFICATION
+      // ======================================================
+
+      let emailStatus:
+        | "sent"
+        | "failed"
+        | null = null;
+
       let suppressed = true;
 
-      const { data: rule, error: ruleError } = await supabase
+      const {
+        data: rule,
+        error: ruleError,
+      } = await supabase
         .from("notification_rules")
         .select("email_enabled, recipients")
         .eq("priority", ticket.priority)
         .maybeSingle();
 
       if (ruleError) {
-        console.error("Notification rule error:", ruleError);
+        console.error(
+          "Notification rule error:",
+          ruleError,
+        );
+
         emailStatus = "failed";
       } else {
-        const recipients = Array.isArray(rule?.recipients)
+        const recipients = Array.isArray(
+          rule?.recipients,
+        )
           ? rule.recipients
-              .map((recipient: unknown) => text(recipient, 320))
+              .map((recipient: unknown) =>
+                text(recipient, 320)
+              )
               .filter(Boolean)
               .slice(0, 10)
           : [];
 
-        if (rule?.email_enabled && recipients.length > 0) {
+        if (
+          rule?.email_enabled &&
+          recipients.length > 0
+        ) {
           suppressed = false;
 
           try {
-            const webhookUrl = Deno.env.get("GMAIL_WEBHOOK_URL");
-            const webhookToken = Deno.env.get("GMAIL_WEBHOOK_TOKEN");
+            const webhookUrl = Deno.env.get(
+              "GMAIL_WEBHOOK_URL",
+            );
+
+            const webhookToken = Deno.env.get(
+              "GMAIL_WEBHOOK_TOKEN",
+            );
 
             if (!webhookUrl || !webhookToken) {
-              throw new Error("Gmail webhook secrets are missing");
+              throw new Error(
+                "Gmail webhook secrets are missing",
+              );
             }
 
-            const gmailResponse = await fetch(webhookUrl, {
-              method: "POST",
-              headers: {
-                "content-type": "application/json",
+            const gmailResponse = await fetch(
+              webhookUrl,
+              {
+                method: "POST",
+                headers: {
+                  "content-type": "application/json",
+                },
+                body: JSON.stringify({
+                  token: webhookToken,
+                  recipients,
+                  ref: ticket.ref,
+                  summary: ticket.summary,
+                  detail: ticket.detail,
+                  tried: ticket.tried,
+                  required: ticket.required,
+                  priority: ticket.priority,
+                  category: ticket.category,
+                  site: ticket.site,
+                }),
               },
-              body: JSON.stringify({
-                token: webhookToken,
-                recipients,
-                ref: ticket.ref,
-                summary: ticket.summary,
-                detail: ticket.detail,
-                tried: ticket.tried,
-                required: ticket.required,
-                priority: ticket.priority,
-                category: ticket.category,
-                site: ticket.site,
-              }),
-            });
+            );
 
-            const gmailText = await gmailResponse.text();
+            const gmailText =
+              await gmailResponse.text();
 
-            let gmailResult: { ok?: boolean; error?: string } = {};
+            let gmailResult: {
+              ok?: boolean;
+              error?: string;
+            } = {};
 
             try {
               gmailResult = JSON.parse(gmailText);
             } catch {
-              throw new Error("Gmail returned an invalid response");
+              throw new Error(
+                "Gmail returned an invalid response",
+              );
             }
 
-            if (!gmailResponse.ok || !gmailResult.ok) {
+            if (
+              !gmailResponse.ok ||
+              !gmailResult.ok
+            ) {
               throw new Error(
-                gmailResult.error || `Gmail error ${gmailResponse.status}`,
+                gmailResult.error ||
+                  `Gmail error ${gmailResponse.status}`,
               );
             }
 
             emailStatus = "sent";
           } catch (emailError) {
             emailStatus = "failed";
-            console.error("Email delivery failed:", emailError);
+
+            console.error(
+              "Email delivery failed:",
+              emailError,
+            );
           }
         }
       }
 
+      // Record the notification attempt
       const { error: logError } = await supabase
         .from("email_log")
         .insert({
@@ -220,25 +328,33 @@ const databaseKey =
         });
 
       if (logError) {
-        console.error("Email log error:", logError);
+        console.error(
+          "Email log error:",
+          logError,
+        );
       }
 
       return response(
         {
           ok: true,
           ref: ticket.ref,
-          email_status: suppressed ? "suppressed" : emailStatus,
+          email_status: suppressed
+            ? "suppressed"
+            : emailStatus,
         },
         200,
         origin,
       );
     }
 
-    // ─────────────────────────────────────────────
-    // Log self-resolved chatbot query
-    // ─────────────────────────────────────────────
+    // ========================================================
+    // LOG SELF-RESOLVED CHATBOT QUERY
+    // ========================================================
+
     if (action === "create_query") {
-      const category = categories.includes(payload.category)
+      const category = categories.includes(
+        payload.category,
+      )
         ? payload.category
         : null;
 
@@ -252,19 +368,33 @@ const databaseKey =
         .select("id")
         .single();
 
-      if (error) throw error;
+      if (error) {
+        throw error;
+      }
 
-      return response({ ok: true, id: data.id }, 200, origin);
+      return response(
+        {
+          ok: true,
+          id: data.id,
+        },
+        200,
+        origin,
+      );
     }
 
-    // ─────────────────────────────────────────────
-    // Create supply order
-    // ─────────────────────────────────────────────
+    // ========================================================
+    // CREATE SUPPLY ORDER
+    // ========================================================
+
     if (action === "create_order") {
       const item = text(payload.item, 500);
 
       if (!item) {
-        return response({ error: "Order item is required" }, 400, origin);
+        return response(
+          { error: "Order item is required" },
+          400,
+          origin,
+        );
       }
 
       const { data, error } = await supabase
@@ -272,22 +402,46 @@ const databaseKey =
         .insert({
           item,
           site: text(payload.site, 200),
-          requested_by: text(payload.requested_by, 200) || null,
+          requested_by:
+            text(payload.requested_by, 200) ||
+            null,
         })
         .select("id")
         .single();
 
-      if (error) throw error;
+      if (error) {
+        throw error;
+      }
 
-      return response({ ok: true, id: data.id }, 200, origin);
+      return response(
+        {
+          ok: true,
+          id: data.id,
+        },
+        200,
+        origin,
+      );
     }
 
-    return response({ error: "Unknown action" }, 400, origin);
+    // Unknown action
+    return response(
+      { error: "Unknown action" },
+      400,
+      origin,
+    );
   } catch (error) {
-    console.error("support-submit error:", error);
+    console.error(
+      "support-submit error:",
+      error,
+    );
 
     return response(
-      { error: error instanceof Error ? error.message : "Request failed" },
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "Request failed",
+      },
       500,
       origin,
     );
