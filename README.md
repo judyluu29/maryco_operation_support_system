@@ -7,106 +7,127 @@ An AI-assisted operation support chatbot and real-time administrative dashboard 
 * **Staff IT Support Chatbot:** [Open chatbot](https://maryco-it-support.netlify.app/)
 * **IT Administration Dashboard:** [Open dashboard](https://maryco-it-dashboard.netlify.app/)
 
-> The dashboard is restricted to authorised demonstration accounts. Use the following demo account to explore the dashboard:
-- **Email:** `demo@maryco-portfolio.com`
-- **Password:** `MaryCoDemo2026!`
-The account provides access only to fictional demonstration data. Administrative actions and data modifications are disabled.
-
 ## Project Overview
 
-MaryCo IT Support is a two-part internal support system designed for non-technical and time-poor staff. It helps users resolve common technology issues through an AI-assisted chatbot and allows unresolved problems to be submitted as support tickets.
+MaryCo IT Support is a two-part internal support system designed for non-technical and time-poor staff. It provides immediate troubleshooting assistance through an AI chatbot and allows unresolved issues to be converted into structured support tickets.
 
-Submitted tickets are stored in a Supabase PostgreSQL database and displayed in a separate administrative dashboard. Authorised staff can monitor incoming cases, update ticket statuses, review support activity and track operational performance.
+Submitted tickets are stored in Supabase and displayed on a separate administrative dashboard. IT staff can monitor incoming cases, change their status, review recurring support issues and manage workplace supply requests.
 
 ## Business Problem
 
-Small not-for-profit organisations may have limited IT resources while employees still require timely support with workplace technology. Manual support processes can make it difficult to consistently record requests, monitor unresolved issues and identify recurring problems.
+* Limited time and technical knowledge: Staff are often non-technical and time-poor because their main responsibility is supporting vulnerable community members.
+* Frequent routine IT issues: Staff regularly experience password, Microsoft 365, printer, laptop, Wi-Fi, VPN and shared-file problems that could often be resolved through guided self-service.
+* Unnecessary pressure on IT resources: Routine questions require IT assistance, taking time away from serious hardware failures, network outages and security incidents.
+* Inconsistent support requests: Requests may not include the affected device, location, issue details, troubleshooting already attempted or support required, making diagnosis slower.
+* Difficulty prioritising incidents: Routine enquiries can become mixed with urgent incidents, making it harder to identify cases requiring immediate escalation.
+* Limited case visibility: Without a central dashboard, IT staff cannot easily monitor open cases, ticket progress, priority levels or unresolved requests approaching their service-level timeframes.
+* Limited operational insights: The organisation has difficulty identifying recurring issue categories, self-resolved enquiries and areas where staff may need additional guidance.
+* Disconnected supply requests: Requests for toner, cables, chargers and other workplace equipment need to be recorded and tracked separately.
 
-This project demonstrates how how an integrated chatbot and dashboard could:
+# Proposed Solution
+This prototype demonstrates how an integrated chatbot and dashboard can:
 
 * Provide immediate guidance for common IT issues
 * Reduce repetitive support enquiries
 * Standardise ticket collection
 * Improve visibility of unresolved requests
-* Support faster prioritisation and follow-up
-* Identify recurring support issues through dashboard insights
+* Support prioritisation and follow-up
+* Identify recurring issues through dashboard insights
 
-## Key Features
+## Main Features
 
-### Staff Chatbot
+### IT Support Chatbot
 
-* AI-assisted troubleshooting through Anthropic Claude
-* Guidance for Microsoft 365, printers, laptops, Cisco AnyConnect, projectors and account security
-* Guided collection of issue details
+* AI-assisted troubleshooting using Anthropic Claude
+* Support for Microsoft 365, printers, laptops and Cisco AnyConnect
+* Guidance for projectors, account security and workplace supplies
+* Guided collection of issue information
 * Automatic support-ticket creation
-* Unique case numbers such as `MC-1001`
-* Links between the chatbot and staff dashboard
+* Unique case references such as `MC-1001`
 * Responsive interface for desktop and mobile devices
+* Direct link to the administrative dashboard
 
 ### Administration Dashboard
 
-* Secure staff authentication through Supabase
-* Real-time display of submitted tickets
-* Search and filtering by status, priority and category
-* Ticket status and priority updates
-* Operational summary cards and insights
-* Notification monitoring
+* Supabase email and password authentication
+* Role-based access through the `staff` table
+* Real-time display of submitted support tickets
+* Search and filtering by status and priority
+* Ticket-status management
 * Supply-request tracking
-* Automatic refresh with a polling fallback
+* Notification-rule management
+* Operational insights and support trends
+* Realtime updates with a polling fallback
 
-### Automation and Notifications
+### Automation
 
 * Secure ticket submission through Supabase Edge Functions
-* Email notifications through Google Apps Script and MailApp
-* Hourly SLA monitoring
-* Identification of unresolved requests requiring escalation
+* Hourly SLA checks using `pg_cron`
+* Priority-based notification rules
+* Email integration prototype using Google Apps Script
+* External notification delivery disabled in the public demonstration
 
 ## Technology Stack
 
-| Component               | Technology                            |
-| ----------------------- | ------------------------------------- |
-| Frontend                | HTML, CSS and JavaScript              |
-| Database                | Supabase PostgreSQL                   |
-| Authentication          | Supabase Auth                         |
-| Real-time updates       | Supabase Realtime                     |
-| Backend functions       | TypeScript and Deno                   |
-| Artificial intelligence | Anthropic Claude API                  |
-| Email notifications     | Google Apps Script and MailApp        |
-| Automation              | Supabase Edge Functions and `pg_cron` |
-| Hosting                 | Netlify                               |
-| Version control         | GitHub                                |
+| Component               | Technology                     |
+| ----------------------- | ------------------------------ |
+| Frontend                | HTML, CSS and JavaScript       |
+| Database                | Supabase PostgreSQL            |
+| Authentication          | Supabase Auth                  |
+| Access control          | PostgreSQL Row Level Security  |
+| Realtime updates        | Supabase Realtime              |
+| Backend functions       | TypeScript and Deno            |
+| Artificial intelligence | Anthropic Claude API           |
+| Scheduling              | Supabase `pg_cron`             |
+| Notification prototype  | Google Apps Script and MailApp |
+| Hosting                 | Netlify                        |
+| Version control         | GitHub                         |
 
 ## System Architecture
 
 ```mermaid
 flowchart TD
-    A[Staff Chatbot] --> B[Supabase Edge Functions]
-    B --> C[Claude API]
-    B --> D[Supabase Database]
-    E[Staff Dashboard] <--> D
-    D --> F[Email and SLA Automation]
+    A[Staff user] --> B[Support chatbot]
+    B --> C[Supabase Edge Functions]
+    C --> D[Claude API]
+    C --> E[(Supabase database)]
+    F[IT dashboard] <--> E
 ```
 
-## Supabase Components
+## Database Design
 
-### Database Tables
+The Supabase PostgreSQL database contains the following tables:
 
-* `staff` — authorised dashboard users
-* `cases` — submitted IT support tickets
-* `queries` — chatbot questions and responses
-* `orders` — workplace supply requests
-* `notification_rules` — notification configuration
-* `email_log` — email delivery history
+| Table                | Purpose                                            |
+| -------------------- | -------------------------------------------------- |
+| `staff`              | Connects authenticated users to application roles  |
+| `cases`              | Stores submitted support tickets                   |
+| `queries`            | Stores chatbot enquiries resolved without a ticket |
+| `orders`             | Stores workplace supply requests                   |
+| `notification_rules` | Stores notification settings by priority           |
+| `email_log`          | Records notification attempts                      |
 
-### Edge Functions
+## Edge Functions
 
-* `super-function` — securely communicates with the Claude API
-* `support-submit` — validates and records support requests
-* `sla-check` — checks unresolved cases against SLA conditions
+| Function         | Purpose                                        |
+| ---------------- | ---------------------------------------------- |
+| `super-function` | Communicates securely with the Claude API      |
+| `support-submit` | Validates and records support requests         |
+| `sla-check`      | Checks unresolved cases against SLA conditions |
 
-### Scheduled Task
+The `sla-hourly` scheduled job runs the SLA checker every hour.
 
-* `sla-hourly` — runs the SLA check every hour
+## Security
+
+* Dashboard users authenticate through Supabase Auth.
+* Database access is controlled using Row Level Security.
+* Anonymous development database policies are removed before deployment.
+* The public demo account cannot modify staff account records.
+* Claude and service-role credentials are stored in Supabase secrets.
+* Secrets, passwords and webhook tokens are excluded from this repository.
+* Frontend files contain only the browser-safe Supabase URL and publishable key.
+* External email and Teams notifications are disabled for the public demo.
+* All demonstration records are fictional and non-identifying.
 
 ## Project Structure
 
@@ -116,6 +137,7 @@ maryco-it-support-system/
 ├── maryco-dashboard-auth.html
 ├── schema.sql
 ├── supabase/
+│   ├── demo-security.sql
 │   └── functions/
 │       ├── super-function/
 │       │   └── index.ts
@@ -127,30 +149,27 @@ maryco-it-support-system/
 └── .gitignore
 ```
 
-## Security and Privacy
-
-* Dashboard access is restricted through Supabase Authentication.
-* Database access is controlled using Row Level Security.
-* Claude API credentials are stored as Supabase Edge Function secrets.
-* Service-role keys, passwords, webhook tokens and API secrets are excluded from this repository.
-* The frontend uses only the browser-safe Supabase project URL and publishable key.
-* All demonstration records are fictional and non-identifying.
-* No real client, staff or organisational information is included.
-
 ## Skills Demonstrated
 
 * Business problem analysis
 * User-focused solution design
-* Database design using SQL
+* SQL database design
+* Authentication and authorisation
+* Row Level Security
 * API integration
-* Authentication and access control
+* AI chatbot integration
 * Real-time dashboard development
 * Workflow automation
-* AI chatbot integration
 * Testing and troubleshooting
 * Cloud deployment
 * Technical documentation
 
+## Demonstration Limitations
+
+* Demonstration data may be reset periodically.
+* Email and Teams delivery are disabled to prevent external messages.
+* The application is a prototype and is not intended to store sensitive information.
+
 ## Disclaimer
 
-This is an independent demonstration prototype created for a GdAI Hack Day project. It is not an official production system of Mary’s House Services and does not contain real client or organisational data.
+This is an independent demonstration prototype created for a G’dAI Hack Day project. It is not an official production system of Mary’s House Services and does not contain real client or organisational data.
