@@ -1,0 +1,234 @@
+import { createClient } from "npm:@supabase/supabase-js@2";
+
+function reply(body: unknown, status = 200) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+}
+
+Deno.serve(async (req) => {
+  if (req.method !== "POST") {
+    return reply({ error: "Method not allowed" }, 405);
+  }
+
+  try {
+    const requestBody = await req.json().catch(() => ({}));
+
+    const expectedToken = Deno.env.get("SLA_CRON_TOKEN");
+    const receivedToken =
+      req.headers.get("x-cron-secret") ?? requestBody.token;
+
+    if (!expectedToken || receivedToken !== expectedToken) {
+      return reply({ error: "Unauthorized" }, 401);
+    }
+
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+
+    const secretKeysJson = Deno.env.get("SUPABASE_SECRET_KEYS");
+    const secretKeys = secretKeysJson
+      ? JSON.parse(secretKeysJson)
+      : {};
+
+    const databaseKey =
+      secretKeys["default"] ??
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ??
+      "";
+
+    if (!supabaseUrl || !databaseKey) {
+      throw new Error("Supabase database secrets are missing");
+    }
+
+    const admin = createClient(supabaseUrl, databaseKey, {
+      auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+      },
+    });
+
+    const checkedAt = new Date().toISOString();
+
+    // Re-alert no more than once every 24 hours
+    const repeatCutoff = new Date(
+      Date.now() - 24 * 60 * 60 * 1000,
+    ).toISOString();
+
+    const { data: tickets, error: ticketError } = await admin
+      .from("cases")
+      .select(`
+        id,
+        ref,
+        summary,
+        detail,
+        tried,
+        required,
+        priority,
+        category,
+        site,
+        sla_due_at
+      `)
+      .neq("status", "resolved")
+      .lte("sla_due_at", checkedAt)
+      .or(
+        `last_sla_alert_at.is.null,last_sla_alert_at.lt.${repeatCutoff}`,
+      )
+      .limit(50);
+
+    if (ticketError) throw ticketError;
+
+    if (!tickets?.length) {
+      return reply({
+        ok: true,
+        checked: 0,
+        sent: 0,
+        failed: 0,
+        suppressed: 0,
+      });
+    }
+
+    const { data: rules, error: ruleError } = await admin
+      .from("notification_rules")
+      .select("priority, email_enabled, recipients");
+
+    if (ruleError) throw ruleError;
+
+    const rulesByPriority = new Map(
+      (rules ?? []).map((rule) => [rule.priority, rule]),
+    );
+
+    const gmailUrl = Deno.env.get("GMAIL_WEBHOOK_URL");
+    const gmailToken = Deno.env.get("GMAIL_WEBHOOK_TOKEN");
+
+    let sent = 0;
+    let failed = 0;
+    let suppressedCount = 0;
+
+    for (const ticket of tickets) {
+      const rule = rulesByPriority.get(ticket.priority);
+
+      const recipients = Array.isArray(rule?.recipients)
+        ? rule.recipients
+            .map((recipient: unknown) => String(recipient).trim())
+            .filter(Boolean)
+            .slice(0, 10)
+        : [];
+
+      let emailStatus: "sent" | "failed" | null = null;
+      let suppressed = true;
+
+      if (rule?.email_enabled && recipients.length > 0) {
+        suppressed = false;
+
+        try {
+          if (!gmailUrl || !gmailToken) {
+            throw new Error("Gmail webhook secrets are missing");
+          }
+
+          const gmailResponse = await fetch(gmailUrl, {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+            },
+            body: JSON.stringify({
+              token: gmailToken,
+              recipients,
+              ref: ticket.ref,
+              priority: ticket.priority,
+              category: ticket.category,
+              site: ticket.site,
+              summary: `SLA OVERDUE — ${ticket.summary}`,
+              detail:
+                `${ticket.detail || "No additional details"}\n\n` +
+                `SLA deadline: ${ticket.sla_due_at}`,
+              tried: ticket.tried,
+              required:
+                "Please review this unresolved ticket in the IT dashboard.",
+            }),
+          });
+
+          const gmailText = await gmailResponse.text();
+
+          let gmailResult: { ok?: boolean; error?: string } = {};
+
+          try {
+            gmailResult = JSON.parse(gmailText);
+          } catch {
+            throw new Error("Gmail returned an invalid response");
+          }
+
+          if (!gmailResponse.ok || !gmailResult.ok) {
+            throw new Error(
+              gmailResult.error ||
+                `Gmail request failed (${gmailResponse.status})`,
+            );
+          }
+
+          emailStatus = "sent";
+          sent++;
+        } catch (emailError) {
+          emailStatus = "failed";
+          failed++;
+          console.error(
+            `SLA email failed for ${ticket.ref}:`,
+            emailError,
+          );
+        }
+      } else {
+        suppressedCount++;
+      }
+
+      const { error: updateError } = await admin
+        .from("cases")
+        .update({
+          sla_breached: true,
+          last_sla_alert_at: checkedAt,
+        })
+        .eq("id", ticket.id);
+
+      if (updateError) {
+        console.error(
+          `SLA update failed for ${ticket.ref}:`,
+          updateError,
+        );
+      }
+
+      const { error: logError } = await admin
+        .from("email_log")
+        .insert({
+          case_id: ticket.id,
+          case_ref: ticket.ref,
+          priority: ticket.priority,
+          email_status: emailStatus,
+          teams_status: null,
+          suppressed,
+        });
+
+      if (logError) {
+        console.error(
+          `SLA log failed for ${ticket.ref}:`,
+          logError,
+        );
+      }
+    }
+
+    return reply({
+      ok: true,
+      checked: tickets.length,
+      sent,
+      failed,
+      suppressed: suppressedCount,
+    });
+  } catch (error) {
+    console.error("sla-check error:", error);
+
+    return reply(
+      {
+        error:
+          error instanceof Error
+            ? error.message
+            : "SLA check failed",
+      },
+      500,
+    );
+  }
+});
