@@ -1,0 +1,16 @@
+# Secrets and environment variables
+.env
+.env.*
+!.env.example
+
+# Supabase local files
+supabase/.temp/
+
+# Dependencies
+node_modules/
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
