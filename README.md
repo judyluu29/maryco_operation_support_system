@@ -6,6 +6,9 @@ An AI-assisted operation support chatbot and real-time administrative dashboard 
 
 * **Staff IT Support Chatbot:** [Open chatbot](https://maryco-it-support.netlify.app/)
 * **IT Administration Dashboard:** [Open dashboard](https://maryco-it-dashboard.netlify.app/)
+* Use the following read-only account to explore the dashboard:
+- **Email:** `demo@maryco-portfolio.com`
+- **Password:** `MaryCoDemo2026!`
 
 ## Project Overview
 
